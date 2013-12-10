@@ -28,9 +28,11 @@ description = """This program manages multiple jobs that can be submitted asynch
 # TODO: Default logfiles for the server?
 # TODO: Implement more complex jobs as dictionaries
 # TODO: Config files for more complex jobs
+# TODO: Config files to specify defaults
 # TODO: Option for working directory
 # TODO: Reprioritise jobs (move them up in the queue)
 # TODO: For running jobs: Starting time.
+# TODO: Change the number of processes for a running server
 
 class Worker (multiprocessing.Process):
     def __init__ ( self, queue, active_job ):
@@ -84,7 +86,7 @@ class Worker (multiprocessing.Process):
                 time.sleep(2+random.random()) # Avoid exactly synchronous Workers
 
 class Server ( object ):
-    def __init__ ( self, njobs ):
+    def __init__ ( self, njobs, verbosity=2 ):
         """The server instance
 
         :Parameters:
@@ -95,12 +97,17 @@ class Server ( object ):
             There is currently no upper list on the number of jobs that can
             be in the queue!
         """
+        self.verbosity = verbosity
         # Set up the connectivity
+        if self.verbosity>1:
+            print "Starting server"
         self.server = socket.socket ( socket.AF_INET, socket.SOCK_STREAM )
         self.server.bind ( ('',2727) )
         self.server.listen ( 5 )
 
         # Initialize process organization
+        if self.verbosity>1:
+            print "Starting workers"
         self.procname = 1
         self.manager = multiprocessing.Manager()
         self.queue = self.manager.list([])
@@ -109,6 +116,8 @@ class Server ( object ):
         for i in xrange(njobs):
             self.active_jobs.append(self.manager.list(["","",""]))
             self.workers.append(Worker(self.queue,self.active_jobs[-1]))
+            if self.verbosity>1:
+                print "  ",self.workers[-1].name
 
     def run ( self ):
         """Run until quit is called"""
@@ -122,20 +131,24 @@ class Server ( object ):
             # Wait for client
             channel,details = self.server.accept()
             # Get information
-            print "Waiting for action"
+            if self.verbosity>1:
+                print "Waiting for action"
             action = channel.recv ( 1024 )
             channel.send ( action )
-            print "Waiting for command"
+            if self.verbosity>1:
+                print "Waiting for command"
             command = channel.recv ( 1024 )
             channel.send ( command )
-            print "Waiting for logfile"
+            if self.verbosity>1:
+                print "Waiting for logfile"
             logfile = channel.recv ( 1024 )
 
             # Perform action
             success = True
-            print "Performing action:",action
-            print "Using command:",command
-            print "Using logfile:",logfile
+            if self.verbosity>0:
+                print "Performing action:",action
+                print "Using command:",command
+                print "Using logfile:",logfile
 
             try:
                 result = eval ( 'self.%s("%s","%s")' % (
@@ -151,10 +164,15 @@ class Server ( object ):
                         result) )
 
         # When quit was called, kill all the workers...
+        if self.verbosity>1:
+            print "Terminating workers"
         for w in self.workers:
+            print "  ",w.name
             w.terminate()
 
         # ... and shutdown the server
+        if self.verbosity>1:
+            print "Shutting down server"
         self.server.shutdown(socket.SHUT_RDWR)
         self.server.close()
 
@@ -177,7 +195,8 @@ class Server ( object ):
 
         Both parameters are meaningless
         """
-        print "Quitting"
+        if self.verbosity>1:
+            print "Quitting"
         self.isrunning = False
         return "Stopping server"
 
@@ -237,6 +256,7 @@ if __name__ == "__main__":
             "These are meaningful if the programm runs as a server" )
     clientoptions = OptionGroup ( parser, "Client Options",
             "These are meaningful if you run the program as a client" )
+
     serveroptions.add_option ( '-s', '--server',
             action='store_true',
             help='run in server mode' )
@@ -246,16 +266,24 @@ if __name__ == "__main__":
             dest='njobs',
             default=2,
             help='number of jobs to run in parallel' )
+    serveroptions.add_option ( '-v','--verbosity',
+            action='store',
+            type='int',
+            dest='verbosity',
+            default=2,
+            help='verbosity level (0: no messages at all, 1: only few and (supposedly) important messages, 2: tell me about everything.' )
+
     clientoptions.add_option ( '-a', '--action',
             action='store',
             help='action to perform' )
+
     parser.add_option_group ( serveroptions )
     parser.add_option_group ( clientoptions )
     opts,args = parser.parse_args ()
 
     if opts.server:
         print "Running server"
-        server = Server(opts.njobs)
+        server = Server(opts.njobs,verbosity=opts.verbosity)
         server.run()
 
     else:
