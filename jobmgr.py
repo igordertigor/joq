@@ -5,9 +5,9 @@ import subprocess
 from optparse import OptionParser,OptionGroup
 import time,random
 
-usage = """jobqueue [options] action [command [logfile]]
+usage = """jobmgr [options] action [command [logfile]]
 
-jobqueue system for simple job management
+job manager for simple job queueing
 
 The following four actions are defined:
 
