@@ -5,6 +5,7 @@ import subprocess
 from optparse import OptionParser,OptionGroup
 import time,random
 import cPickle
+import datetime
 
 usage = """joq [options] action [command [logfile]]
 
@@ -28,7 +29,6 @@ description = """This program manages multiple jobs that can be submitted asynch
 # TODO: Config files for more complex jobs
 # TODO: Default logfiles for the server?
 # TODO: Config files to specify defaults
-# TODO: Option for working directory
 # TODO: Reprioritise jobs (move them up in the queue)
 # TODO: For running jobs: Starting time.
 # TODO: Change the number of processes for a running server
@@ -62,6 +62,7 @@ class Worker (multiprocessing.Process):
                 job = self.queue.pop(0)
                 for key,item in job.iteritems():
                     self.active_job[key] = item
+                self.active_job['start'] = str(datetime.datetime.now())
 
                 print "Worker",self.name
                 print "  Running process",job['id'],"with command:",job['command']
@@ -205,10 +206,10 @@ class Server ( object ):
         tab += "\n"
 
         # Now we list the jobs that are currently active
-        tab += "Active (worker,id,command,logfile)\n"
+        tab += "Active (worker,id,command,logfile,starting time)\n"
         for w,job in zip(self.workers,self.active_jobs):
             if len(job.keys()):
-                tab += w.name + " %(id)6s\t%(command)50s\t%(logfile)10s\n" % job
+                tab += w.name + "   id: %(id)6s\n  command: %(command)s\n  logfile: %(logfile)s\n  working directory: %(working_dir)s\n  started at: %(start)20s\n" % job
             else:
                 tab += w.name + " idle\n"
 
