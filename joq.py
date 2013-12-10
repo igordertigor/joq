@@ -30,8 +30,7 @@ description = """This program manages multiple jobs that can be submitted asynch
 # TODO: Default logfiles for the server?
 # TODO: Config files to specify defaults
 # TODO: Reprioritise jobs (move them up in the queue)
-# TODO: For running jobs: Starting time.
-# TODO: Change the number of processes for a running server
+# TODO: A general job formatting function?
 
 class Worker (multiprocessing.Process):
     def __init__ ( self, queue, active_job ):
@@ -60,6 +59,9 @@ class Worker (multiprocessing.Process):
             if len(self.queue):
                 # There is a job in the queue
                 job = self.queue.pop(0)
+                if job == '__terminate__':
+                    print "Worker",self.name,"is going down"
+                    break
                 for key,item in job.iteritems():
                     self.active_job[key] = item
                 self.active_job['start'] = str(datetime.datetime.now())
@@ -141,6 +143,17 @@ class Server ( object ):
             channel.send ( pcljob )
             job = cPickle.loads(pcljob)
 
+            # Potentially clean up
+            i = 0
+            while i<len(self.workers):
+                if not self.workers[i].is_alive():
+                    if self.verbosity>0:
+                        print "Removing dead worker",self.workers[i].name
+                    self.workers.pop(i)
+                    self.active_jobs.pop(i)
+                else:
+                    i += 1
+
             # Perform action
             success = True
             if self.verbosity>0:
@@ -158,6 +171,8 @@ class Server ( object ):
                         action,
                         'successful' if success else 'not successful',
                         result) )
+
+
 
         # When quit was called, kill all the workers...
         if self.verbosity>1:
@@ -244,7 +259,31 @@ class Server ( object ):
                 return "Didn't find job: %(id)s" % (job,)
         return "Removed %s job %s" % (status,str(removed))
 
+    def change_njobs ( self, job ):
+        """Change the number of jobs"""
+        if job['njobs'] <= 0:
+            job['njobs'] = 1
+
+        njobs = len(self.workers)
+        if job['njobs'] > njobs:
+            while job['njobs'] > len(self.workers):
+                self.active_jobs.append ( self.manager.dict({}) )
+                self.workers.append ( Worker(self.queue, self.active_jobs[-1]) )
+                self.workers[-1].start()
+            return "Increased number of workers from %d to %d" % (njobs,job['njobs'])
+        elif job['njobs'] < njobs:
+            for i in xrange(job['njobs'],njobs):
+                self.queue.insert(0,'__terminate__')
+            return "Queued %d __terminate__ events" % (njobs-job['njobs'])
+        else:
+            return "No change necessary"
+
 def assemble_job ( opts, args ):
+    if not opts.njobs is None and len(args)==0:
+        action = 'change_njobs'
+        job = {'njobs': opts.njobs}
+        return action,job
+
     if len(args)>0:
         action = args[0]
     else:
@@ -273,7 +312,7 @@ if __name__ == "__main__":
             type='int',
             dest='njobs',
             default=2,
-            help='number of jobs to run in parallel' )
+            help='number of jobs to run in parallel (if this is called from a client, an attempt is made to change the number of jobs)' )
     serveroptions.add_option ( '-v','--verbosity',
             action='store',
             type='int',
