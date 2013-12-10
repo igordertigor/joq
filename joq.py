@@ -66,11 +66,13 @@ class Worker (multiprocessing.Process):
                 print "Worker",self.name
                 print "  Running process",job['id'],"with command:",job['command']
 
-                logf = open(job['logfile'],'w')
-                exc = subprocess.call ( job['command'],
+                logf = open(job.setdefault('logfile','/dev/null'),'w')
+                exc = subprocess.Popen ( job['command'],
                         stderr=subprocess.STDOUT,
                         stdout=logf,
-                        shell=True )
+                        shell=True,
+                        cwd=job.setdefault('working_dir','.')
+                        ).wait()
                 logf.close()
 
                 print "Worker",self.name
@@ -144,11 +146,11 @@ class Server ( object ):
                 print "Performing action:",action
                 print "job:",job
 
-            try:
-                result = eval ( 'self.%s(%s)' % (action,job) )
-            except:
-                success = False
-                result = None
+            # try:
+            result = eval ( 'self.%s(%s)' % (action,job) )
+            # except:
+            #     success = False
+            #     result = None
 
             # Send status back to client
             channel.send ( "Action '%s' was %s\n%s" % (
@@ -251,6 +253,7 @@ def assemble_job ( opts, args ):
     job = {}
     job['command'] = opts.command
     job['logfile'] = opts.logfile
+    job['working_dir'] = opts.working_dir
 
     return action,job
 
