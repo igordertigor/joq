@@ -4,6 +4,7 @@ import socket,multiprocessing
 import subprocess
 from optparse import OptionParser,OptionGroup
 import time,random
+import cPickle
 
 usage = """joq [options] action [command [logfile]]
 
@@ -24,10 +25,8 @@ The following four actions are defined:
 description = """This program manages multiple jobs that can be submitted asynchronously. It allows you to specify the number of jobs that can run in parallel, and any job that is submitted to the system will be dealed with as soon as one of the working processes is free.
 """
 
-# TODO: Can we control the verbosity level?
-# TODO: Default logfiles for the server?
-# TODO: Implement more complex jobs as dictionaries
 # TODO: Config files for more complex jobs
+# TODO: Default logfiles for the server?
 # TODO: Config files to specify defaults
 # TODO: Option for working directory
 # TODO: Reprioritise jobs (move them up in the queue)
@@ -44,12 +43,12 @@ class Worker (multiprocessing.Process):
                 mulitprocessing.manager so that tasks can be appended to the
                 list from the main program.
             active_job
-                a list of properties of the currently active job. Will
-                initially be an empty list of three items. Yet, as soon as
-                the worker is actually dealing with a job, it will write
-                properties of the job into this list. Because the list is
-                used for inter process communication, it should again be
-                created using multiprocessing.manager.
+                a dictionary of properties of the currently active job. Will
+                initially be a empty. Yet, as soon as the worker is actually
+                dealing with a job, it will write properties of the job into
+                this list. Because the list is used for inter process
+                communication, it should again be created using
+                multiprocessing.manager.
         """
         self.queue = queue
         self.active_job = active_job
@@ -60,29 +59,27 @@ class Worker (multiprocessing.Process):
         while True:
             if len(self.queue):
                 # There is a job in the queue
-                name,command,logfile = self.queue.pop(0)
-                self.active_job[0] = name
-                self.active_job[1] = command
-                self.active_job[2] = logfile
+                job = self.queue.pop(0)
+                for key,item in job.iteritems():
+                    self.active_job[key] = item
 
                 print "Worker",self.name
-                print "  Running process",name,"with command:",command
+                print "  Running process",job['id'],"with command:",job['command']
 
-                logf = open(logfile,'w')
-                exc = subprocess.call ( command,
+                logf = open(job['logfile'],'w')
+                exc = subprocess.call ( job['command'],
                         stderr=subprocess.STDOUT,
                         stdout=logf,
                         shell=True )
                 logf.close()
 
                 print "Worker",self.name
-                print "Finished command",command,"exit code",exc
+                print "  Finished command",job['command'],"exit code",exc
             else:
                 # There is no job in the queue, put empty marks into the job
                 # description and wait a bit for the next check.
-                self.active_job[0] = ""
-                self.active_job[1] = ""
-                self.active_job[2] = ""
+                for k in self.active_job.keys():
+                    self.active_job.pop(k)
                 time.sleep(2+random.random()) # Avoid exactly synchronous Workers
 
 class Server ( object ):
@@ -114,7 +111,7 @@ class Server ( object ):
         self.active_jobs = []
         self.workers     = []
         for i in xrange(njobs):
-            self.active_jobs.append(self.manager.list(["","",""]))
+            self.active_jobs.append(self.manager.dict({}))
             self.workers.append(Worker(self.queue,self.active_jobs[-1]))
             if self.verbosity>1:
                 print "  ",self.workers[-1].name
@@ -137,22 +134,18 @@ class Server ( object ):
             channel.send ( action )
             if self.verbosity>1:
                 print "Waiting for command"
-            command = channel.recv ( 1024 )
-            channel.send ( command )
-            if self.verbosity>1:
-                print "Waiting for logfile"
-            logfile = channel.recv ( 1024 )
+            pcljob = channel.recv ( 1024 )
+            channel.send ( pcljob )
+            job = cPickle.loads(pcljob)
 
             # Perform action
             success = True
             if self.verbosity>0:
                 print "Performing action:",action
-                print "Using command:",command
-                print "Using logfile:",logfile
+                print "job:",job
 
             try:
-                result = eval ( 'self.%s("%s","%s")' % (
-                    action,command,logfile) )
+                result = eval ( 'self.%s(%s)' % (action,job) )
             except:
                 success = False
                 result = None
@@ -176,52 +169,50 @@ class Server ( object ):
         self.server.shutdown(socket.SHUT_RDWR)
         self.server.close()
 
-    def submit ( self, command, logfile ):
+    def submit ( self, job ):
         """Submit a job
 
         :Parameters:
-            command
-                a string with the command to be executed
-            logfile
-                where should standard error and standard output of the job go?
+            job
+                a dictionary describing the job to be submitted
         """
+        if job['command'] is None:
+            return "No command specified, no job committed"
         procname = str(self.procname)
         self.procname += 1
-        self.queue.append ( (procname,command,logfile) )
-        return "Submitted command: %s in process %s" % (command,procname)
+        job['id'] = procname
+        self.queue.append ( job )
+        return "Submitted command: %s with job id %s" % (job['command'],job['id'])
 
-    def quit ( self, q='ignored', l='ignored' ):
-        """Quit the server
-
-        Both parameters are meaningless
-        """
+    def quit ( self, ignored=None ):
+        """Quit the server"""
         if self.verbosity>1:
             print "Quitting"
         self.isrunning = False
         return "Stopping server"
 
-    def ls ( self, q='ignored', l='ignored' ):
-        """List all jobs
-
-        Both parameters are meaningless
-        """
+    def ls ( self, ignored=None ):
+        """List all jobs"""
         # First we list all the jobs that are waiting
         tab = "Waiting (id,command,logfile)\n"
         if len(self.queue):
-            for task in self.queue:
-                tab += "%6s\t%50s\t%10s\n" % task
+            for job in self.queue:
+                tab += "%(id)6s\t%(command)50s\t%(logfile)10s\n" % job
         else:
-            tab += "  No active jobs\n"
+            tab += "  No waiting jobs\n"
         tab += "\n"
 
         # Now we list the jobs that are currently active
         tab += "Active (worker,id,command,logfile)\n"
-        for w,j in zip(self.workers,self.active_jobs):
-            tab += w.name + " %6s\t%50s\t%10s\n" % tuple(j)
+        for w,job in zip(self.workers,self.active_jobs):
+            if len(job.keys()):
+                tab += w.name + " %(id)6s\t%(command)50s\t%(logfile)10s\n" % job
+            else:
+                tab += w.name + " idle\n"
 
         return tab
 
-    def cancel ( self, job, l='ignored' ):
+    def cancel ( self, job ):
         """Cancel a given job
 
         :Parameters:
@@ -230,25 +221,38 @@ class Server ( object ):
         """
         # First, try to find the job in the queue of waiting jobs
         for i in xrange(len(self.queue)):
-            if job==self.queue[i][0]:
+            if job==self.queue[i]['id']:
                 removed = self.queue.pop(i)
                 status = "waiting"
                 break
         else:
             # Is the job active?
             for i in xrange(len(self.active_jobs)):
-                if job==self.active_jobs[i][0]:
+                if job==self.active_jobs[i]['id']:
                     # Now this is a bit risky. We have to kill the worker and
                     # create a new one.
-                    removed = tuple(self.active_jobs[i])
+                    removed = self.active_jobs[i]
                     status = "active"
                     self.workers[i].terminate()
                     self.workers[i] = Worker(self.queue,self.active_jobs[i])
                     self.workers[i].start()
                     break
             else:
-                return "Didn't find job: %s" % (job,)
+                return "Didn't find job: %(id)s" % (job,)
         return "Removed %s job %s" % (status,str(removed))
+
+def assemble_job ( opts, args ):
+    if len(args)>0:
+        action = args[0]
+    else:
+        print "No action specified! Aborting."
+        return None
+
+    job = {}
+    job['command'] = opts.command
+    job['logfile'] = opts.logfile
+
+    return action,job
 
 if __name__ == "__main__":
     parser = OptionParser(usage=usage,description=description)
@@ -273,9 +277,18 @@ if __name__ == "__main__":
             default=2,
             help='verbosity level (0: no messages at all, 1: only few and (supposedly) important messages, 2: tell me about everything.' )
 
-    clientoptions.add_option ( '-a', '--action',
+    clientoptions.add_option ( '-c', '--command',
             action='store',
-            help='action to perform' )
+            dest='command',
+            help='command to be submitted' )
+    clientoptions.add_option ( '-l', '--logfile',
+            action='store',
+            dest='logfile',
+            help='logfile for the process' )
+    clientoptions.add_option ( '-d', '--working-directory',
+            action='store',
+            dest='working_dir',
+            help='specify working directory for the command' )
 
     parser.add_option_group ( serveroptions )
     parser.add_option_group ( clientoptions )
@@ -287,6 +300,7 @@ if __name__ == "__main__":
         server.run()
 
     else:
+        action,job = assemble_job ( opts, args )
         # Clientmode
         # Connect to the server
         print "Running client"
@@ -295,23 +309,14 @@ if __name__ == "__main__":
 
         # Send what you want to do and wait for replies
         print "Sending action request"
-        client.send ( opts.action )
+        client.send ( action )
         understood = client.recv ( 1024 )
         print "Server understood request:",understood
-        if len(args)>0:
-            print "Sending command:",args[0]
-            client.send ( args[0] )
-        else:
-            print "Sending empty command"
-            client.send ( "." )
+        # Assemble job in dictionary, pickle, and send
+        pcljob = cPickle.dumps(job)
+        client.send ( pcljob )
         understood = client.recv ( 1024 )
-        print "Server understood command",understood
-        if len(args) > 1:
-            print "Sending logfile",args[1]
-            client.send ( args[1] )
-        else:
-            print "Using no logfile"
-            client.send ( '/dev/null' )
+        print "Server understood command",cPickle.loads(understood)
 
         # At this point, we should get a message about the status of the action
         print client.recv ( 1024 )
