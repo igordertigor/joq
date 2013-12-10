@@ -5,7 +5,7 @@ import subprocess
 from optparse import OptionParser,OptionGroup
 import time,random
 
-usage = """jobmgr [options] action [command [logfile]]
+usage = """joq [options] action [command [logfile]]
 
 job manager for simple job queueing
 
