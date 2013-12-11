@@ -13,7 +13,14 @@ For best performance, you would like to evenly distribute your jobs on the numbe
 Getting started
 ===============
 
-Make the file joq.py executable and put it somehwere in your path. Allow joq to manage your compute jobs, you have to start a joq server::
+Make the file joq.py executable and put it somehwere in your path. I just left the joq.py file where I normally have it and put a soft link in by ~/bin::
+
+    cd ~/bin
+    ln -s <path/to/joq.py> joq
+
+This allows me to call joq by simply typing "joq" rather than "joq.py" -- three keystrokes less.
+
+To allow joq to manage your compute jobs, you have to start a joq server::
 
     joq -s -n 2
 
