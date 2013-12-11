@@ -44,11 +44,18 @@ The following four actions are defined:
 description = """This program manages multiple jobs that can be submitted asynchronously. It allows you to specify the number of jobs that can run in parallel, and any job that is submitted to the system will be dealed with as soon as one of the working processes is free.
 """
 
-# TODO: notifications
+format_job_short = "%(id)3s\t%(command)s"
+format_job_long  = """
+  id:      %(id)s
+  command: %(command)s
+  logfile: %(logfile)s
+  working: %(working_dir)s
+  started: %(start)s
+"""
+
 # TODO: Config files for more complex jobs
 # TODO: Default logfiles for the server?
 # TODO: Config files to specify defaults
-# TODO: A general job formatting function?
 
 class Worker (multiprocessing.Process):
     def __init__ ( self, queue, active_job, notify ):
@@ -244,26 +251,35 @@ class Server ( object ):
         self.isrunning = False
         return "Stopping server",True
 
-    def ls ( self, ignored=None ):
-        """List all jobs"""
+    def ls ( self, job ):
+        """List all jobs or show details of one"""
         # First we list all the jobs that are waiting
-        tab = "Waiting (id,command,logfile)\n"
+        details = None
+        tab = "Waiting (id,command)\n"
         if len(self.queue):
-            for job in self.queue:
-                tab += "%(id)6s\t%(command)50s\t%(logfile)10s\n" % job
+            for _job in self.queue:
+                tab += format_job_short % _job
+                if _job['id'] == job['id']:
+                    details = format_job_long % _job
+                    details += "  status:  waiting\n"
         else:
             tab += "  No waiting jobs\n"
         tab += "\n"
 
         # Now we list the jobs that are currently active
-        tab += "Active (worker,id,command,logfile,starting time)\n"
-        for w,job in zip(self.workers,self.active_jobs):
-            if len(job.keys()):
-                tab += w.name + "   id: %(id)6s\n  command: %(command)s\n  logfile: %(logfile)s\n  working directory: %(working_dir)s\n  started at: %(start)20s\n" % job
+        tab += "Active (worker,id,command)\n"
+        for w,_job in zip(self.workers,self.active_jobs):
+            if len(_job.keys()):
+                tab += w.name + format_job_short % _job
+                if _job['id'] == job['id']:
+                    details = format_job_long % _job
+                    details += "  status:  active\n"
             else:
                 tab += w.name + " idle\n"
-
-        return tab,True
+        if details is None:
+            return tab,True
+        else:
+            return details,True
 
     def cancel ( self, job ):
         """Cancel a given job
@@ -334,7 +350,6 @@ class Server ( object ):
                 return "Didn't find job with id %(id)s.",False
         else:
             return "No waiting jobs",False
-
 
 def assemble_job ( opts, args ):
     if not opts.njobs is None and len(args)==0:
