@@ -239,14 +239,14 @@ class Server ( object ):
         """
         # First, try to find the job in the queue of waiting jobs
         for i in xrange(len(self.queue)):
-            if job==self.queue[i]['id']:
+            if job['id']==self.queue[i]['id']:
                 removed = self.queue.pop(i)
                 status = "waiting"
                 break
         else:
             # Is the job active?
             for i in xrange(len(self.active_jobs)):
-                if job==self.active_jobs[i]['id']:
+                if job['id']==self.active_jobs[i]['id']:
                     # Now this is a bit risky. We have to kill the worker and
                     # create a new one.
                     removed = self.active_jobs[i]
@@ -256,7 +256,7 @@ class Server ( object ):
                     self.workers[i].start()
                     break
             else:
-                return "Didn't find job: %(id)s" % (job,)
+                return "Didn't find job: %(id)s" % job
         return "Removed %s job %s" % (status,str(removed))
 
     def change_njobs ( self, job ):
@@ -294,6 +294,7 @@ def assemble_job ( opts, args ):
     job['command'] = opts.command
     job['logfile'] = opts.logfile
     job['working_dir'] = opts.working_dir
+    job['id']      = opts.job_id
 
     return action,job
 
@@ -334,6 +335,11 @@ if __name__ == "__main__":
             dest='working_dir',
             default='.',
             help='specify working directory for the command' )
+    clientoptions.add_option ( '-i', '--job-id',
+            action='store',
+            dest='job_id',
+            default='',
+            help='specify a job id. If you submit a job, the id will likely be overridden at the moment' )
 
     parser.add_option_group ( serveroptions )
     parser.add_option_group ( clientoptions )
