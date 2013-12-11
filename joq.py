@@ -298,6 +298,29 @@ class Server ( object ):
         else:
             return "No change necessary"
 
+    def mv ( self, job ):
+        """Move a job up and down in the waiting list
+
+        :Parameters:
+            job
+                needs an job['id'] field and a job['pos'] field
+        """
+        # First: Find the job
+        if len(self.queue):
+            assert job.has_key('id')
+            assert job.has_key('pos')
+            for i in xrange(len(self.queue)):
+                _job = self.queue[i]
+                if _job['id']==job['id']:
+                    _job = self.queue.pop(i)
+                    self.queue.insert(job['pos'],_job)
+                    return "Moved job %(id)s to position %(pos)d" % job
+            else:
+                return "Didn't find job with id %(id)s."
+        else:
+            return "No waiting jobs"
+
+
 def assemble_job ( opts, args ):
     if not opts.njobs is None and len(args)==0:
         action = 'change_njobs'
@@ -315,6 +338,7 @@ def assemble_job ( opts, args ):
     job['logfile'] = opts.logfile
     job['working_dir'] = opts.working_dir
     job['id']      = opts.job_id
+    job['pos']     = opts.position
 
     return action,job
 
@@ -360,6 +384,12 @@ if __name__ == "__main__":
             dest='job_id',
             default='',
             help='specify a job id. If you submit a job, the id will likely be overridden at the moment' )
+    clientoptions.add_option ( '-p', '--new-position',
+            action='store',
+            type='int',
+            dest='position',
+            default=0,
+            help='When moving a job, this is option specifies the new position. By default, the new position is 0, so the job would be moved to the beginning of the queue.' )
 
     parser.add_option_group ( serveroptions )
     parser.add_option_group ( clientoptions )
