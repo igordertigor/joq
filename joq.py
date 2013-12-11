@@ -327,10 +327,12 @@ if __name__ == "__main__":
     clientoptions.add_option ( '-l', '--logfile',
             action='store',
             dest='logfile',
+            default='/dev/null',
             help='logfile for the process' )
     clientoptions.add_option ( '-d', '--working-directory',
             action='store',
             dest='working_dir',
+            default='.',
             help='specify working directory for the command' )
 
     parser.add_option_group ( serveroptions )
