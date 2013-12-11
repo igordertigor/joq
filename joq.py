@@ -23,9 +23,7 @@ licensetext = u"""
 import socket,multiprocessing
 import subprocess
 from optparse import OptionParser,OptionGroup
-import time,random
-import cPickle
-import datetime
+import time,random,cPickle,datetime,inspect
 
 usage = """joq [options] action [command [logfile]]
 
@@ -141,6 +139,20 @@ class Server ( object ):
             if self.verbosity>1:
                 print "  ",self.workers[-1].name
 
+        # Get valid actions
+        self.valid_actions = inspect.getmembers(self,predicate=inspect.ismethod)
+        # Remove no-actions
+        i = 0
+        while i<len(self.valid_actions):
+            if self.valid_actions[i][0] in ['__init__','run']:
+                self.valid_actions.pop(i)
+            else:
+                self.valid_actions[i] = self.valid_actions[i][0]
+                i+=1
+        if self.verbosity>2:
+            print "This server understands the following actions" + \
+                "\n".join(self.valid_actions)
+
     def run ( self ):
         """Run until quit is called"""
         self.isrunning = True
@@ -175,24 +187,21 @@ class Server ( object ):
                     i += 1
 
             # Perform action
-            success = True
             if self.verbosity>0:
                 print "Performing action:",action
                 print "job:",job
 
-            # try:
-            result = eval ( 'self.%s(%s)' % (action,job) )
-            # except:
-            #     success = False
-            #     result = None
+            if action in self.valid_actions:
+                result,success = eval ( 'self.%s(%s)' % (action,job) )
+            else:
+                success = False
+                result = "Did not find action"
 
             # Send status back to client
             channel.send ( "Action '%s' was %s\n%s" % (
                         action,
                         'successful' if success else 'not successful',
                         result) )
-
-
 
         # When quit was called, kill all the workers...
         if self.verbosity>1:
@@ -215,19 +224,19 @@ class Server ( object ):
                 a dictionary describing the job to be submitted
         """
         if job['command'] is None:
-            return "No command specified, no job committed"
+            return "No command specified, no job committed",False
         procname = str(self.procname)
         self.procname += 1
         job['id'] = procname
         self.queue.append ( job )
-        return "Submitted command: %s with job id %s" % (job['command'],job['id'])
+        return "Submitted command: %s with job id %s" % (job['command'],job['id']),True
 
     def quit ( self, ignored=None ):
         """Quit the server"""
         if self.verbosity>1:
             print "Quitting"
         self.isrunning = False
-        return "Stopping server"
+        return "Stopping server",True
 
     def ls ( self, ignored=None ):
         """List all jobs"""
@@ -248,7 +257,7 @@ class Server ( object ):
             else:
                 tab += w.name + " idle\n"
 
-        return tab
+        return tab,True
 
     def cancel ( self, job ):
         """Cancel a given job
@@ -276,8 +285,8 @@ class Server ( object ):
                     self.workers[i].start()
                     break
             else:
-                return "Didn't find job: %(id)s" % job
-        return "Removed %s job %s" % (status,str(removed))
+                return "Didn't find job: %(id)s" % job,False
+        return "Removed %s job %s" % (status,str(removed)),True
 
     def change_njobs ( self, job ):
         """Change the number of jobs"""
@@ -290,13 +299,13 @@ class Server ( object ):
                 self.active_jobs.append ( self.manager.dict({}) )
                 self.workers.append ( Worker(self.queue, self.active_jobs[-1]) )
                 self.workers[-1].start()
-            return "Increased number of workers from %d to %d" % (njobs,job['njobs'])
+            return "Increased number of workers from %d to %d" % (njobs,job['njobs']),True
         elif job['njobs'] < njobs:
             for i in xrange(job['njobs'],njobs):
                 self.queue.insert(0,'__terminate__')
-            return "Queued %d __terminate__ events" % (njobs-job['njobs'])
+            return "Queued %d __terminate__ events" % (njobs-job['njobs']),True
         else:
-            return "No change necessary"
+            return "No change necessary",True
 
     def mv ( self, job ):
         """Move a job up and down in the waiting list
@@ -314,11 +323,11 @@ class Server ( object ):
                 if _job['id']==job['id']:
                     _job = self.queue.pop(i)
                     self.queue.insert(job['pos'],_job)
-                    return "Moved job %(id)s to position %(pos)d" % job
+                    return "Moved job %(id)s to position %(pos)d" % job,True
             else:
-                return "Didn't find job with id %(id)s."
+                return "Didn't find job with id %(id)s.",False
         else:
-            return "No waiting jobs"
+            return "No waiting jobs",False
 
 
 def assemble_job ( opts, args ):
