@@ -44,14 +44,14 @@ The following four actions are defined:
 description = """This program manages multiple jobs that can be submitted asynchronously. It allows you to specify the number of jobs that can run in parallel, and any job that is submitted to the system will be dealed with as soon as one of the working processes is free.
 """
 
+# TODO: notifications
 # TODO: Config files for more complex jobs
 # TODO: Default logfiles for the server?
 # TODO: Config files to specify defaults
-# TODO: Reprioritise jobs (move them up in the queue)
 # TODO: A general job formatting function?
 
 class Worker (multiprocessing.Process):
-    def __init__ ( self, queue, active_job ):
+    def __init__ ( self, queue, active_job, notify ):
         """An isolated process that works one job after the other
 
         :Parameters:
@@ -70,6 +70,7 @@ class Worker (multiprocessing.Process):
         self.queue = queue
         self.active_job = active_job
         multiprocessing.Process.__init__(self)
+        self.notification = notify+' "%s"'
         print "Created worker",self.name
     def run ( self ):
         """Run the worker to infinity"""
@@ -96,6 +97,10 @@ class Worker (multiprocessing.Process):
                         ).wait()
                 logf.close()
 
+                command = self.notification % ("joq: %s finished job %s with exit code %d" %(self.name,job['id'],exc))
+                print command
+                subprocess.call( command, shell=True )
+
                 print "Worker",self.name
                 print "  Finished command",job['command'],"exit code",exc
             else:
@@ -106,7 +111,7 @@ class Worker (multiprocessing.Process):
                 time.sleep(2+random.random()) # Avoid exactly synchronous Workers
 
 class Server ( object ):
-    def __init__ ( self, njobs, verbosity=2 ):
+    def __init__ ( self, njobs, verbosity=2, notify="" ):
         """The server instance
 
         :Parameters:
@@ -135,9 +140,10 @@ class Server ( object ):
         self.workers     = []
         for i in xrange(njobs):
             self.active_jobs.append(self.manager.dict({}))
-            self.workers.append(Worker(self.queue,self.active_jobs[-1]))
+            self.workers.append(Worker(self.queue,self.active_jobs[-1],notify))
             if self.verbosity>1:
                 print "  ",self.workers[-1].name
+        self.notify = notify
 
         # Get valid actions
         self.valid_actions = inspect.getmembers(self,predicate=inspect.ismethod)
@@ -281,7 +287,7 @@ class Server ( object ):
                     removed = self.active_jobs[i]
                     status = "active"
                     self.workers[i].terminate()
-                    self.workers[i] = Worker(self.queue,self.active_jobs[i])
+                    self.workers[i] = Worker(self.queue,self.active_jobs[i],self.notify)
                     self.workers[i].start()
                     break
             else:
@@ -297,7 +303,7 @@ class Server ( object ):
         if job['njobs'] > njobs:
             while job['njobs'] > len(self.workers):
                 self.active_jobs.append ( self.manager.dict({}) )
-                self.workers.append ( Worker(self.queue, self.active_jobs[-1]) )
+                self.workers.append ( Worker(self.queue, self.active_jobs[-1], self.notify) )
                 self.workers[-1].start()
             return "Increased number of workers from %d to %d" % (njobs,job['njobs']),True
         elif job['njobs'] < njobs:
@@ -373,6 +379,11 @@ if __name__ == "__main__":
             dest='verbosity',
             default=2,
             help='verbosity level (0: no messages at all, 1: only few and (supposedly) important messages, 2: tell me about everything.' )
+    serveroptions.add_option ( '-m','--notification',
+            action='store',
+            dest='notification',
+            default='notify-send',
+            help='A command that will be called to notify you about finished jobs' )
 
     clientoptions.add_option ( '-c', '--command',
             action='store',
@@ -406,7 +417,7 @@ if __name__ == "__main__":
 
     if opts.server:
         print "Running server"
-        server = Server(opts.njobs,verbosity=opts.verbosity)
+        server = Server(opts.njobs,verbosity=opts.verbosity,notify=opts.notification)
         server.run()
 
     else:
