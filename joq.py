@@ -44,7 +44,7 @@ The following four actions are defined:
 description = """This program manages multiple jobs that can be submitted asynchronously. It allows you to specify the number of jobs that can run in parallel, and any job that is submitted to the system will be dealed with as soon as one of the working processes is free.
 """
 
-format_job_short = "%(id)3s\t%(command)s"
+format_job_short = "%(id)3s\t%(command)s\n"
 format_job_long  = """
   id:      %(id)s
   command: %(command)s
@@ -53,6 +53,7 @@ format_job_long  = """
   started: %(start)s
 """
 
+# TODO: Default working directory and logfile directory are where the client runs!
 # TODO: Config files for more complex jobs
 # TODO: Default logfiles for the server?
 # TODO: Config files to specify defaults
